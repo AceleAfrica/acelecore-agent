@@ -48,8 +48,37 @@ public partial class MainForm : Form
             if (hasUpdate)
             {
                 Logger.Log($"⬆ Update available: v{latest} (current: v{AppSettings.CurrentVersion})", Logger.LogLevel.Warning);
-                _trayIcon.ShowBalloonTip(5000, "Update Available",
-                    $"AceleCore Agent v{latest} is available. Ask Clinton to update.", ToolTipIcon.Info);
+
+                var result = MessageBox.Show(
+                    $"AceleCore Agent v{latest} is available.\n\nWould you like to update now?\nThe app will restart automatically after updating.",
+                    "Update Available",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Information,
+                    MessageBoxDefaultButton.Button1
+                );
+
+                if (result == DialogResult.Yes)
+                {
+                    Logger.Log("Starting update...", Logger.LogLevel.Info);
+                    _sendBtn.Enabled = false;
+
+                    var success = await AutoUpdater.DownloadAndInstallAsync(latest);
+                    if (success)
+                    {
+                        Logger.Log("Update downloaded — restarting...", Logger.LogLevel.Success);
+                        _trayIcon.Visible = false;
+                        Application.Exit();
+                    }
+                    else
+                    {
+                        Logger.Log("Update failed — continuing with current version", Logger.LogLevel.Error);
+                        _sendBtn.Enabled = true;
+                    }
+                }
+                else
+                {
+                    Logger.Log($"Update postponed — running v{AppSettings.CurrentVersion}", Logger.LogLevel.Info);
+                }
             }
         };
     }
