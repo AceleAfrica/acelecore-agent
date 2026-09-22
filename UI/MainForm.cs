@@ -77,9 +77,11 @@ public partial class MainForm : Form
     {
         try
         {
-            var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "icon.ico");
-            if (File.Exists(iconPath))
-                return new Icon(iconPath);
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            // The resource name is: AssemblyName.Folder.Filename
+            using var stream = assembly.GetManifestResourceStream("AceleCoreAgent.Resources.icon.ico");
+            if (stream != null)
+                return new Icon(stream);
         }
         catch { }
         return SystemIcons.Application;

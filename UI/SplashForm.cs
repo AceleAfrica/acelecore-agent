@@ -1,3 +1,4 @@
+using AceleCoreAgent.Core;
 namespace AceleCoreAgent.UI;
 
 public class SplashForm : Form
@@ -34,25 +35,27 @@ public class SplashForm : Form
             Location = new Point(175, 35),
             BackColor = Color.Transparent,
         };
+
         logoPanel.Paint += (s, e) =>
         {
             var g = e.Graphics;
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-            // Try to draw actual icon
+            // Try embedded resource first
             try
             {
-                var iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "icon.ico");
-                if (File.Exists(iconPath))
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                using var stream = assembly.GetManifestResourceStream("AceleCoreAgent.Resources.icon.ico");
+                if (stream != null)
                 {
-                    using var icon = new Icon(iconPath, 64, 64);
+                    using var icon = new Icon(stream, 64, 64);
                     g.DrawIcon(icon, new Rectangle(2, 2, 64, 64));
                     return;
                 }
             }
             catch { }
 
-            // Fallback to drawn circle
+            // Fallback to drawn circle with AC text
             using var brush = new SolidBrush(Color.FromArgb(46, 134, 171));
             g.FillEllipse(brush, 0, 0, 68, 68);
             using var font = new Font("Segoe UI", 22, FontStyle.Bold);
@@ -87,7 +90,7 @@ public class SplashForm : Form
 
         var version = new Label
         {
-            Text = "v1.0.0  ·  AceleAfrica",
+            Text = $"v{AppSettings.CurrentVersion}  ·  AceleAfrica",
             Font = new Font("Segoe UI", 8),
             ForeColor = Color.FromArgb(60, 90, 110),
             TextAlign = ContentAlignment.MiddleCenter,
@@ -115,12 +118,12 @@ public class SplashForm : Form
         border.Controls.Add(inner);
         Controls.Add(border);
 
-        // Animate loading bar
+        // Animate loading bar — faster so main form loads quicker
         int progress = 0;
-        _timer.Interval = 20;
+        _timer.Interval = 15;
         _timer.Tick += (s, e) =>
         {
-            progress += 4;
+            progress += 6;
             loadingBar.Width = Math.Min(progress * 280 / 100, 280);
             if (progress >= 100)
             {

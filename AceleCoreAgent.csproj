@@ -26,8 +26,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Content Include="Resources\icon.ico">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
+		<!-- Embed icon into the exe — no Resources folder needed at runtime -->
+		<EmbeddedResource Include="Resources\icon.ico" />
 	</ItemGroup>
 </Project>

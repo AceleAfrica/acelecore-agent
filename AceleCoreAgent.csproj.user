@@ -7,7 +7,13 @@
     <Compile Update="UI\MainForm.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Update="UI\MigrateFolderForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="UI\SettingsForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="UI\SplashForm.cs">
       <SubType>Form</SubType>
     </Compile>
   </ItemGroup>
