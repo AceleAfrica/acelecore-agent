@@ -14,6 +14,6 @@ public class AppSettings
     public bool AutoConfirmSend { get; set; } = false;
     public bool StartWithWindows { get; set; } = false;
     public bool MinimizeToTrayOnClose { get; set; } = true;
-    public static string CurrentVersion => "1.1.0";
+    public static string CurrentVersion => "1.1.1";
     public static string UpdateCheckUrl => "https://raw.githubusercontent.com/AceleAfrica/acelecore-agent/main/version.txt";
 }

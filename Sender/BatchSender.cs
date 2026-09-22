@@ -105,8 +105,13 @@ public class BatchSender
                 }
 
                 // Find or create testing batch
+                // Find or create testing batch
+                var notes = folderInfo.ManufactureYear.HasValue
+                    ? $"Manufacture year: {folderInfo.ManufactureYear} | Original label: {folderInfo.OriginalBatchLabel}"
+                    : folderInfo.OriginalBatchLabel;
+
                 var testingBatchId = await FindOrCreateTestingBatchAsync(
-                    sourceId, folderInfo.Year, folderInfo.Month, folderInfo.BatchNo);
+                    sourceId, folderInfo.Year, folderInfo.Month, folderInfo.BatchNo, notes);
 
                 if (testingBatchId == null)
                 {
@@ -307,7 +312,7 @@ public class BatchSender
     }
 
     private async Task<string?> FindOrCreateTestingBatchAsync(
-        string sourceId, int year, int month, int batchNo)
+    string sourceId, int year, int month, int batchNo, string? notes = null)
     {
         var cacheKey = $"{sourceId}-{year}-{month}-{batchNo}";
         if (_batchCache!.TryGetValue(cacheKey, out var cachedBatchId))
@@ -316,7 +321,7 @@ public class BatchSender
         try
         {
             var batchDate = new DateTime(year, month, 1).ToString("yyyy-MM-dd");
-            var res = await _api.PostAsync("testing-batches", new { sourceId, batchDate, batchNo });
+            var res = await _api.PostAsync("testing-batches", new { sourceId, batchDate, batchNo, notes });
 
             // 409 = already exists, fetch it
             var data = res?["data"] as JObject;
