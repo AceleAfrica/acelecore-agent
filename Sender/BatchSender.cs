@@ -105,7 +105,6 @@ public class BatchSender
                 }
 
                 // Find or create testing batch
-                // Find or create testing batch
                 var notes = folderInfo.ManufactureYear.HasValue
                     ? $"Manufacture year: {folderInfo.ManufactureYear} | Original label: {folderInfo.OriginalBatchLabel}"
                     : folderInfo.OriginalBatchLabel;
@@ -119,8 +118,8 @@ public class BatchSender
                     return;
                 }
 
-                // Build cell payloads for bulk sync
-                var cellPayloads = new List<object>();
+                // Build cell payloads — track file path alongside each payload
+                var cellPayloads = new List<(object Payload, string FilePath)>();
 
                 foreach (var filePath in toProcess)
                 {
@@ -134,6 +133,7 @@ public class BatchSender
                         Logger.Log($"  ⏭️ Skipped (bad filename): {fileName}", Logger.LogLevel.Warning);
                         progress.Skipped++;
                         progress.Processed++;
+                        // Mark skipped files as processed so we don't retry them forever
                         processedFiles.Add(filePath);
                         continue;
                     }
@@ -143,6 +143,7 @@ public class BatchSender
                         var parsed = FileParser.Parse(filePath);
                         if (parsed == null)
                         {
+                            Logger.Log($"  ⏭️ Skipped (no data): {fileName}", Logger.LogLevel.Warning);
                             progress.Skipped++;
                             progress.Processed++;
                             processedFiles.Add(filePath);
@@ -151,6 +152,7 @@ public class BatchSender
 
                         if (parsed.IsPack)
                         {
+                            Logger.Log($"  🔋 Pack file skipped: {fileName}", Logger.LogLevel.Info);
                             progress.Skipped++;
                             progress.Processed++;
                             processedFiles.Add(filePath);
@@ -175,19 +177,22 @@ public class BatchSender
                             ["rackPosition"] = fileInfo.RackPosition,
                             ["cellLife"] = "SECOND_LIFE",
                             ["cellFormFactor"] = "C26650",
-                            ["testRecord"] = BuildTestRecord(parsed, isDeadCell, result, fileName),
+                            ["testRecord"] = BuildTestRecord(parsed, isDeadCell, result, fileName, fileInfo.CapacityAh),
                         };
 
                         if (fileInfo.CapacityAh.HasValue)
                             cellPayload["nominalCapacity"] = fileInfo.CapacityAh.Value;
 
-                        cellPayloads.Add(cellPayload);
-                        processedFiles.Add(filePath);
+                        // Track payload alongside its file path — don't mark as processed yet
+                        cellPayloads.Add((cellPayload, filePath));
                     }
                     catch (Exception ex)
                     {
+                        // Parse errors — don't mark as processed so we can retry
                         errors.Add($"{fileName}: {ex.Message}");
                         Logger.Log($"  ❌ Parse error {fileName}: {ex.Message}", Logger.LogLevel.Error);
+                        progress.Errors++;
+                        progress.Processed++;
                     }
                 }
 
@@ -200,16 +205,21 @@ public class BatchSender
                         if (ct.IsCancellationRequested) break;
 
                         var chunk = cellPayloads.Skip(i).Take(chunkSize).ToList();
-                        var syncResult = await _api.PostAsync("cells/agent/sync-batch", new { cells = chunk });
+                        var syncResult = await _api.PostAsync("cells/agent/sync-batch", new { cells = chunk.Select(c => c.Payload).ToList() });
 
-                        var created = syncResult?["data"]?["created"]?.Value<int>() ?? 0;
-                        var skipped = syncResult?["data"]?["skipped"]?.Value<int>() ?? 0;
-                        var errs = syncResult?["data"]?["errors"]?.Value<int>() ?? 0;
+                        var data = syncResult?["data"] as Newtonsoft.Json.Linq.JObject;
+                        var created = data?["created"]?.Value<int>() ?? 0;
+                        var skipped = data?["skipped"]?.Value<int>() ?? 0;
+                        var errs = data?["errors"]?.Value<int>() ?? 0;
 
                         progress.Passed += created;
                         progress.Skipped += skipped;
                         progress.Errors += errs;
                         progress.Processed += chunk.Count;
+
+                        // Only mark files as processed if sync was successful
+                        if (errs == 0 || created > 0 || skipped > 0)
+                            processedFiles.AddRange(chunk.Select(c => c.FilePath));
 
                         Logger.Log($"  ✅ Chunk {i / chunkSize + 1}: {created} created, {skipped} skipped, {errs} errors",
                             Logger.LogLevel.Success);
@@ -240,7 +250,6 @@ public class BatchSender
             _db.UpdateStatus(batch.Id, BatchStatus.Failed, ex.Message);
         }
     }
-
     // ── Source management ─────────────────────────────────────────────────────
 
     private async Task PreloadSources()
@@ -353,14 +362,20 @@ public class BatchSender
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Dictionary<string, object?> BuildTestRecord(
-        ParsedTestResult parsed, bool isDeadCell, string result, string fileName)
+    ParsedTestResult parsed, bool isDeadCell, string result, string fileName,
+    double? nominalCapacity = null)
     {
+        var soh = nominalCapacity.HasValue && nominalCapacity > 0 && parsed.CapacityAh > 0
+            ? Math.Round(parsed.CapacityAh / nominalCapacity.Value * 100, 1)
+            : (double?)null;
+
         var tr = new Dictionary<string, object?>
         {
             ["capacityAh"] = isDeadCell ? 0.001 : parsed.CapacityAh,
             ["result"] = result,
             ["testDate"] = parsed.TestDate.ToString("O"),
             ["rawFileName"] = fileName,
+            ["sohPercent"] = soh,
         };
 
         if (parsed.EnergyWh.HasValue && parsed.EnergyWh > 0) tr["energyWh"] = parsed.EnergyWh.Value;

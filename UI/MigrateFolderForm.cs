@@ -368,7 +368,7 @@ public class MigrateFolderForm : Form
             // Create a sender with migration settings
             var migrationSettings = new AppSettings
             {
-                WatchFolder = rootFolder,
+                WatchFolder = _settings.WatchFolder,
                 ApiBaseUrl = _settings.ApiBaseUrl,
                 ApiEmail = _settings.ApiEmail,
                 ApiPassword = _settings.ApiPassword,

@@ -22,8 +22,17 @@ public static class FileParser
 
     static FileParser()
     {
-        // Required for ExcelDataReader to support .xlsx on .NET
         System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+    }
+
+    // Safely converts any cell value to string — handles TimeSpan values
+    // that ExcelDataReader creates when reading time-formatted cells
+    private static string? SafeCellString(object? cellValue)
+    {
+        if (cellValue == null) return null;
+        if (cellValue is TimeSpan ts) return ts.ToString(@"hh\:mm\:ss");
+        if (cellValue is DateTime dt) return dt.ToString("yyyy-MM-dd HH:mm:ss");
+        return cellValue.ToString();
     }
 
     public static ParsedTestResult? Parse(string filePath)
@@ -34,17 +43,16 @@ public static class FileParser
             using var reader = ExcelReaderFactory.CreateReader(stream);
             var dataset = reader.AsDataSet(new ExcelDataSetConfiguration
             {
+                UseColumnDataType = false,
                 ConfigureDataTable = _ => new ExcelDataTableConfiguration { UseHeaderRow = false }
             });
 
-            // Standard format: sheets named "test" and "step"
             var testSheet = dataset.Tables["test"];
             var stepSheet = dataset.Tables["step"];
 
             if (testSheet == null || stepSheet == null)
                 return null;
 
-            // Get barcode — scan first 10 rows for "Barcode" label
             string? serial = null;
             DateTime testDate = DateTime.Now;
 
@@ -52,38 +60,41 @@ public static class FileParser
             {
                 for (int c = 0; c < Math.Min(15, testSheet.Columns.Count); c++)
                 {
-                    var cellVal = testSheet.Rows[r][c]?.ToString()?.Trim().ToLower();
+                    var cellVal = SafeCellString(testSheet.Rows[r][c])?.Trim().ToLower();
+
                     if (cellVal == "barcode" && c + 2 < testSheet.Columns.Count)
                     {
-                        var val = testSheet.Rows[r][c + 2]?.ToString()?.Trim();
+                        var val = SafeCellString(testSheet.Rows[r][c + 2])?.Trim();
                         if (!string.IsNullOrEmpty(val) && val != "-")
                             serial = val;
                     }
+
                     if ((cellVal == "start time" || cellVal == "starting time") && c + 2 < testSheet.Columns.Count)
                     {
-                        var dateVal = testSheet.Rows[r][c + 2];
-                        if (dateVal != null && DateTime.TryParse(dateVal.ToString(), out var dt))
+                        var dateStr = SafeCellString(testSheet.Rows[r][c + 2])?.Trim();
+                        if (!string.IsNullOrEmpty(dateStr) &&
+                            !System.Text.RegularExpressions.Regex.IsMatch(dateStr, @"^\d{1,2}:\d{2}:\d{2}$") &&
+                            DateTime.TryParse(dateStr, out var dt))
+                        {
                             testDate = dt;
+                        }
                     }
                 }
             }
 
-            // Fall back to filename if no barcode
             if (string.IsNullOrEmpty(serial))
                 serial = Path.GetFileNameWithoutExtension(filePath);
 
-            // Find headers in step sheet
             if (stepSheet.Rows.Count < 2) return null;
             var headers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             var headerRow = stepSheet.Rows[0];
             for (int c = 0; c < stepSheet.Columns.Count; c++)
             {
-                var h = headerRow[c]?.ToString()?.Trim();
+                var h = SafeCellString(headerRow[c])?.Trim();
                 if (!string.IsNullOrEmpty(h))
                     headers[h] = c;
             }
 
-            // Find columns
             int? stepTypeCol = FindCol(headers, "Step Type");
             int? capCol = FindCol(headers, "Capacity(Ah)");
             int? energyCol = FindCol(headers, "Energy(Wh)");
@@ -94,19 +105,17 @@ public static class FileParser
 
             if (stepTypeCol == null || capCol == null) return null;
 
-            // Scan for pack detection and discharge row
             double peakVoltage = 0;
             int dischargeRowIndex = -1;
 
             for (int r = 1; r < stepSheet.Rows.Count; r++)
             {
                 var row = stepSheet.Rows[r];
-                var stepType = row[stepTypeCol.Value]?.ToString()?.Trim().ToLower() ?? "";
+                var stepType = SafeCellString(row[stepTypeCol.Value])?.Trim().ToLower() ?? "";
 
-                // Check voltages for pack detection
                 foreach (var col in new[] { onsetCol, endVoltCol, chgEndCol }.Where(c => c.HasValue))
                 {
-                    if (double.TryParse(row[col!.Value]?.ToString(), out var v) && v > peakVoltage)
+                    if (double.TryParse(SafeCellString(row[col!.Value]), out var v) && v > peakVoltage)
                         peakVoltage = v;
                 }
 
@@ -117,14 +126,20 @@ public static class FileParser
             var isPack = peakVoltage > MAX_CELL_CHARGE_VOLTAGE;
 
             if (dischargeRowIndex < 0)
-                return new ParsedTestResult { CellSerial = serial, OriginalSerial = serial, IsPack = isPack, TestDate = testDate };
+                return new ParsedTestResult
+                {
+                    CellSerial = serial,
+                    OriginalSerial = serial,
+                    IsPack = isPack,
+                    TestDate = testDate
+                };
 
             var dRow = stepSheet.Rows[dischargeRowIndex];
-            double.TryParse(dRow[capCol.Value]?.ToString(), out var capacityAh);
-            double.TryParse(energyCol.HasValue ? dRow[energyCol.Value]?.ToString() : null, out var energyWh);
-            double.TryParse(onsetCol.HasValue ? dRow[onsetCol.Value]?.ToString() : null, out var onset);
-            double.TryParse(endVoltCol.HasValue ? dRow[endVoltCol.Value]?.ToString() : null, out var endV);
-            double.TryParse(dcirCol.HasValue ? dRow[dcirCol.Value]?.ToString() : null, out var dcir);
+            double.TryParse(SafeCellString(dRow[capCol.Value]), out var capacityAh);
+            double.TryParse(energyCol.HasValue ? SafeCellString(dRow[energyCol.Value]) : null, out var energyWh);
+            double.TryParse(onsetCol.HasValue ? SafeCellString(dRow[onsetCol.Value]) : null, out var onset);
+            double.TryParse(endVoltCol.HasValue ? SafeCellString(dRow[endVoltCol.Value]) : null, out var endV);
+            double.TryParse(dcirCol.HasValue ? SafeCellString(dRow[dcirCol.Value]) : null, out var dcir);
 
             return new ParsedTestResult
             {
@@ -151,7 +166,6 @@ public static class FileParser
         foreach (var name in names)
         {
             if (headers.TryGetValue(name, out var col)) return col;
-            // Fuzzy match
             var fuzzy = headers.Keys.FirstOrDefault(k =>
                 k.Replace(".", "").Replace("_", " ").ToLower().Contains(
                     name.Replace(".", "").Replace("_", " ").ToLower()));

@@ -1,0 +1,3 @@
+C:\Users\HP\Cprojects\AceleCoreAgent\publish-selfcontained\AceleCoreAgent.pdb
+C:\Users\HP\Cprojects\AceleCoreAgent\publish-selfcontained\e_sqlite3.dll
+C:\Users\HP\Cprojects\AceleCoreAgent\publish-selfcontained\AceleCoreAgent.exe

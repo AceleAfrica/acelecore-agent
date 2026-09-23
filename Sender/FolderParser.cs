@@ -1,4 +1,6 @@
-﻿namespace AceleCoreAgent.Sender;
+﻿using AceleCoreAgent.Core;
+
+namespace AceleCoreAgent.Sender;
 
 public class FolderInfo
 {
@@ -33,17 +35,29 @@ public static class FolderParser
     {
         try
         {
+            
             var relative = Path.GetRelativePath(watchRoot, folderPath);
+            
+
+            // If folder is outside watch root — use full path segments instead
+            if (relative.StartsWith(".."))
+                relative = folderPath;
+
             var parts = relative
                 .Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries)
                 .Select(p => p.Trim())
                 .ToArray();
 
+            
+
             if (parts.Length < 2) return null;
 
             // ── Find the batch folder (last segment) ────────────────────────
             var batchSegment = parts[parts.Length - 1];
+
             var batchInfo = ParseBatchSegment(batchSegment);
+            
+
             if (batchInfo == null) return null;
 
             // ── Find the source folder (second to last, skip "CELLS" etc.) ──
@@ -52,36 +66,46 @@ public static class FolderParser
             for (int i = parts.Length - 2; i >= 0; i--)
             {
                 var part = parts[i].ToUpperInvariant();
-                // Skip known non-source folders
+               
                 if (part == "CELLS" || part == "DATA" || part == "TESTING" ||
                     part == "TEST" || part == "FILES" || part == "BATCHES")
+                {
+                    
                     continue;
+                }
 
-                // Skip year folders (4-digit numbers)
                 if (System.Text.RegularExpressions.Regex.IsMatch(parts[i], @"^\d{4}$"))
+                {
+                    
                     continue;
+                }
 
-                // Skip month folders
                 if (IsMonthFolder(parts[i]))
+                {
+                    
                     continue;
+                }
 
                 sourceName = parts[i];
                 sourceIndex = i;
+                
                 break;
             }
 
-            if (sourceName == null) return null;
+            if (sourceName == null)
+            {
+              
+                 Logger.Log($"  DEBUG sourceName is NULL — returning null", Logger.LogLevel.Warning); return null;
+            }
 
-            // ── Find month folder (somewhere before source) ──────────────────
-            int month = DateTime.Now.Month; // default to current month
+            int month = DateTime.Now.Month;
             for (int i = sourceIndex - 1; i >= 0; i--)
             {
                 var m = ExtractMonth(parts[i]);
                 if (m.HasValue) { month = m.Value; break; }
             }
 
-            // ── Find year (4-digit folder or current year) ───────────────────
-            int year = DateTime.Now.Year; // default to current year
+            int year = DateTime.Now.Year;
             for (int i = 0; i < parts.Length; i++)
             {
                 if (int.TryParse(parts[i], out int y) && y > 2000 && y < 2100)
@@ -90,6 +114,8 @@ public static class FolderParser
                     break;
                 }
             }
+
+            Logger.Log($"  DEBUG result: source={sourceName}, year={year}, month={month}, batch={batchInfo.Value.BatchNo}", Logger.LogLevel.Info);
 
             return new FolderInfo
             {
@@ -101,7 +127,11 @@ public static class FolderParser
                 OriginalBatchLabel = batchSegment,
             };
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            Logger.Log($"  DEBUG FolderParser exception: {ex.Message}", Logger.LogLevel.Error);
+            return null;
+        }
     }
 
     // Parses batch folder names like:
@@ -200,7 +230,11 @@ public static class FolderParser
                 RackPosition = rackPos,
             };
         }
-        catch { return null; }
+        catch (Exception ex)
+        {
+            Logger.Log($"  FOLDERPARSER EXCEPTION: {ex.Message}", Logger.LogLevel.Error);
+            return null;
+        }
     }
 
     // TC format: TC-MKP-260901-01-0001
